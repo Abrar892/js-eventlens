@@ -127,6 +127,30 @@ test('query endpoints answer over HTTP', async (t) => {
   assert.match(bad.json.error, /invalid/);
 });
 
+test('funnel and retention endpoints answer over HTTP', async (t) => {
+  const { port } = await setup(t);
+  await request(port, 'POST', '/api/events', {
+    body: { events: [
+      { event: 'page_view', distinct_id: 'u1', timestamp: '2026-11-23T10:00:00.000Z', properties: {} },
+      { event: 'sign_up', distinct_id: 'u1', timestamp: '2026-11-23T10:05:00.000Z', properties: {} },
+      { event: 'page_view', distinct_id: 'u2', timestamp: '2026-11-23T11:00:00.000Z', properties: {} },
+    ] },
+  });
+  const funnel = await request(port, 'POST', '/api/funnel', {
+    body: { steps: ['page_view', 'sign_up'], window_hours: 24 },
+  });
+  assert.equal(funnel.status, 200);
+  assert.deepEqual(funnel.json.reached, [2, 1]);
+
+  const retention = await request(port, 'GET', '/api/retention?event=page_view&weeks=2');
+  assert.equal(retention.status, 200);
+  assert.equal(retention.json.cohorts.length, 1);
+  assert.equal(retention.json.cohorts[0].size, 2);
+
+  const badFunnel = await request(port, 'POST', '/api/funnel', { body: { steps: ['only'] } });
+  assert.equal(badFunnel.status, 400);
+});
+
 test('unknown routes return 404', async (t) => {
   const { port } = await setup(t);
   assert.equal((await request(port, 'GET', '/nope', { key: null })).status, 404);
