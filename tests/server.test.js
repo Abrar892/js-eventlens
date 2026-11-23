@@ -104,6 +104,29 @@ test('GET /api/events lists names and total', async (t) => {
   assert.deepEqual(res.json.events, ['page_view', 'sign_up']);
 });
 
+test('query endpoints answer over HTTP', async (t) => {
+  const { port } = await setup(t);
+  await request(port, 'POST', '/api/events', {
+    body: { events: [
+      event('u1', '2026-11-23T10:15:00.000Z'),
+      event('u2', '2026-11-23T11:05:00.000Z'),
+    ] },
+  });
+  const series = await request(port, 'GET', '/api/query/timeseries?event=page_view&interval=day');
+  assert.equal(series.status, 200);
+  assert.equal(series.json.buckets[0].count, 2);
+  assert.equal(series.json.buckets[0].uniques, 2);
+
+  const groups = await request(port, 'GET', '/api/query/breakdown?event=page_view&property=plan');
+  assert.equal(groups.status, 200);
+  assert.equal(groups.json.groups[0].value, 'pro');
+  assert.equal(groups.json.groups[0].count, 2);
+
+  const bad = await request(port, 'GET', '/api/query/timeseries?interval=week');
+  assert.equal(bad.status, 400);
+  assert.match(bad.json.error, /invalid/);
+});
+
 test('unknown routes return 404', async (t) => {
   const { port } = await setup(t);
   assert.equal((await request(port, 'GET', '/nope', { key: null })).status, 404);
