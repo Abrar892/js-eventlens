@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EventLens</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.5rem; }
+  label { display: block; margin: 0.75rem 0 0.25rem; font-weight: 600; }
+  input, select, button { font: inherit; padding: 0.4rem 0.6rem; }
+  input, select { width: 100%; box-sizing: border-box; }
+  button { margin-top: 1rem; cursor: pointer; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+  th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
+  th { background: #f2f2f2; }
+  #status { color: #555; margin-top: 0.5rem; }
+  .error { color: #b00020; }
+</style>
+</head>
+<body>
+<h1>EventLens</h1>
+<p>Minimal dashboard. Enter the server API key, then pick an event to inspect.</p>
+
+<label for="key">API key</label>
+<input id="key" type="password" placeholder="dev-key-change-me" autocomplete="off">
+
+<label for="event">Event</label>
+<select id="event"><option value="">— load events first —</option></select>
+
+<label for="property">Breakdown property</label>
+<input id="property" type="text" placeholder="e.g. plan">
+
+<button id="load">Load events</button>
+<button id="refresh">Refresh report</button>
+<p id="status"></p>
+
+<h2>Daily counts</h2>
+<table id="series"><thead><tr><th>Day</th><th>Events</th><th>Unique users</th></tr></thead><tbody></tbody></table>
+
+<h2>Breakdown</h2>
+<table id="breakdown"><thead><tr><th>Value</th><th>Events</th><th>Unique users</th></tr></thead><tbody></tbody></table>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+
+async function api(path) {
+  const res = await fetch(path, { headers: { Authorization: 'Bearer ' + $('key').value } });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'HTTP ' + res.status);
+  return res.json();
+}
+
+function renderRows(tableId, rows, columns) {
+  const tbody = document.querySelector('#' + tableId + ' tbody');
+  tbody.innerHTML = rows.map((r) =>
+    '<tr>' + columns.map((c) => '<td>' + r[c] + '</td>').join('') + '</tr>').join('')
+    || '<tr><td colspan="' + columns.length + '">No data</td></tr>';
+}
+
+$('load').addEventListener('click', async () => {
+  try {
+    statusEl.textContent = '';
+    const data = await api('/api/events');
+    const select = $('event');
+    select.innerHTML = data.events.map((e) => '<option>' + e + '</option>').join('') || '<option value="">(no events yet)</option>';
+    statusEl.textContent = data.total + ' events stored.';
+  } catch (err) {
+    statusEl.textContent = err.message;
+    statusEl.className = 'error';
+  }
+});
+
+$('refresh').addEventListener('click', async () => {
+  const event = $('event').value;
+  if (!event) { statusEl.textContent = 'Load events and pick one first.'; return; }
+  try {
+    statusEl.textContent = '';
+    const series = await api('/api/query/timeseries?event=' + encodeURIComponent(event) + '&interval=day');
+    renderRows('series', series.buckets.map((b) => ({ day: b.bucket.slice(0, 10), count: b.count, uniques: b.uniques })), ['day', 'count', 'uniques']);
+    const property = $('property').value.trim();
+    if (property) {
+      const groups = await api('/api/query/breakdown?event=' + encodeURIComponent(event) + '&property=' + encodeURIComponent(property));
+      renderRows('breakdown', groups.groups, ['value', 'count', 'uniques']);
+    }
+  } catch (err) {
+    statusEl.textContent = err.message;
+    statusEl.className = 'error';
+  }
+});
+</script>
+</body>
+</html>
